@@ -1,10 +1,10 @@
 # AGENTS.md
 
-Guidelines for AI agents working in this repository.
+Guidelines for AI agents working in this repository. `CLAUDE.md` is a symlink to this file — keep them in sync by editing `AGENTS.md`.
 
 ## Repository Overview
 
-This repository contains **Agent Skills** for AI agents following the [Agent Skills specification](https://agentskills.io/specification.md). Skills install to `.agents/skills/` (the cross-agent standard). This repo also serves as a **Claude Code plugin marketplace** via `.claude-plugin/marketplace.json`.
+This repository contains 33 **Agent Skills** for AI agents following the [Agent Skills specification](https://agentskills.io/specification.md). Skills install to `.agents/skills/` (the cross-agent standard, with `.claude/` fallback for older setups). This repo also serves as a **Claude Code plugin marketplace** via `.claude-plugin/marketplace.json`.
 
 - **Name**: Marketing Skills
 - **GitHub**: [coreyhaines31/marketingskills](https://github.com/coreyhaines31/marketingskills)
@@ -16,34 +16,60 @@ This repository contains **Agent Skills** for AI agents following the [Agent Ski
 ```
 marketingskills/
 ├── .claude-plugin/
-│   └── marketplace.json   # Claude Code plugin marketplace manifest
-├── skills/                # Agent Skills
+│   └── marketplace.json        # Claude Code plugin marketplace manifest
+├── .github/
+│   ├── ISSUE_TEMPLATE/         # skill-request.yml + config.yml
+│   ├── PULL_REQUEST_TEMPLATE/  # new-skill, skill-update, documentation
+│   ├── scripts/sync-skills.js  # Regenerates marketplace.json + README skills table
+│   └── workflows/              # sync-skills.yml, validate-skill.yml
+├── skills/                     # 33 Agent Skills (one directory per skill)
 │   └── skill-name/
-│       └── SKILL.md       # Required skill file
+│       ├── SKILL.md            # Required - main instructions (<500 lines)
+│       ├── references/         # Optional - detailed docs loaded on demand
+│       ├── evals/evals.json    # Standard - prompt/assertion eval cases
+│       ├── scripts/            # Optional - executable code
+│       └── assets/             # Optional - templates, data files
 ├── tools/
-│   ├── clis/              # Zero-dependency Node.js CLI tools (51 tools)
-│   ├── composio/          # Composio integration layer (quick start + toolkit mapping)
-│   ├── integrations/      # API integration guides per tool
-│   └── REGISTRY.md        # Tool index with capabilities
+│   ├── REGISTRY.md             # Tool index with capabilities (~70 tools)
+│   ├── clis/                   # 61 zero-dependency Node.js CLI tools + README
+│   ├── composio/               # Composio integration layer (quick start + toolkit mapping)
+│   └── integrations/           # 75 API integration guides per tool
+├── AGENTS.md                   # This file (CLAUDE.md → symlink)
+├── CLAUDE.md -> AGENTS.md      # Symlink for Claude Code discovery
 ├── CONTRIBUTING.md
 ├── LICENSE
-└── README.md
+├── README.md                   # Skills table is auto-generated between SKILLS markers
+├── VERSIONS.md                 # Per-skill version + changelog
+├── validate-skills.sh          # Custom bash validator for the spec rules below
+└── validate-skills-official.sh # Validates via the official agentskills/skills-ref library
 ```
 
 ## Build / Lint / Test Commands
 
-**Skills** are content-only (no build step). Verify manually:
-- YAML frontmatter is valid
-- `name` field matches directory name exactly
-- `name` is 1-64 chars, lowercase alphanumeric and hyphens only
-- `description` is 1-1024 characters
+**Skills** are content-only (no build step). Validate before opening a PR:
 
-**CLI tools** (`tools/clis/*.js`) are zero-dependency Node.js scripts (Node 18+). Verify with:
+```bash
+./validate-skills.sh              # Custom validator: name/description/length/trigger phrases
+./validate-skills-official.sh     # Official skills-ref validator (clones agentskills repo to /tmp)
+```
+
+The custom validator checks:
+- YAML frontmatter exists and is parseable
+- `name` field matches directory name exactly
+- `name` is 1-64 chars, `^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$`
+- `description` is 1-1024 characters
+- Description contains trigger phrases (`when`/`mention`/`use`) and a related-skill pointer
+- `SKILL.md` is under 500 lines (warning, not error)
+- `version` is nested under `metadata:`, not top-level
+
+**CLI tools** (`tools/clis/*.js`) are zero-dependency Node.js scripts (Node 18+, native `fetch`). Verify with:
 ```bash
 node --check tools/clis/<name>.js   # Syntax check
 node tools/clis/<name>.js           # Show usage (no args = help)
 node tools/clis/<name>.js <cmd> --dry-run  # Preview request without sending
 ```
+
+All CLIs follow a consistent pattern: env-var auth (`{TOOL}_API_KEY`), JSON output, `{tool} <resource> <action> [options]` command shape.
 
 ## Agent Skills Specification
 
@@ -83,9 +109,20 @@ description: What this skill does and when to use it. Include trigger phrases.
 skills/skill-name/
 ├── SKILL.md        # Required - main instructions (<500 lines)
 ├── references/     # Optional - detailed docs loaded on demand
+├── evals/          # Standard across all 33 skills - evals.json with prompt/assertion cases
 ├── scripts/        # Optional - executable code
 └── assets/         # Optional - templates, data files
 ```
+
+**Evals**: Each skill ships an `evals/evals.json` containing test prompts, expected outputs, and assertion lists. When adding or modifying a skill, update its evals to cover the new behavior. Schema: `{ "skill_name": "...", "evals": [{ "id", "prompt", "expected_output", "assertions": [], "files": [] }] }`.
+
+### Foundational Skill: `product-marketing-context`
+
+The `product-marketing-context` skill is the foundation for the others. Every other skill checks for `.agents/product-marketing-context.md` first (with `.claude/product-marketing-context.md` as a fallback for older v1.0 installs) and uses it to ground product, audience, and positioning decisions before asking the user for context.
+
+When writing a new skill, include this check near the top of the body:
+
+> Check for product marketing context first: if `.agents/product-marketing-context.md` exists (or `.claude/product-marketing-context.md` in older setups), read it before asking questions.
 
 ## Writing Style Guidelines
 
@@ -138,6 +175,13 @@ This repo also serves as a plugin marketplace. The manifest at `.claude-plugin/m
 
 See [Claude Code plugins documentation](https://code.claude.com/docs/en/plugins.md) for details.
 
+**Do not edit `.claude-plugin/marketplace.json` or the `<!-- SKILLS:START -->...<!-- SKILLS:END -->` block in `README.md` by hand.** Both are regenerated by `.github/scripts/sync-skills.js` on push to `main` (via the `Sync Skills` workflow). Add or remove a skill by creating/deleting its directory under `skills/` — the next push to `main` will sync the manifest and README table.
+
+## GitHub Workflows
+
+- **`.github/workflows/sync-skills.yml`** — On push to `main` that touches `skills/**`, runs `.github/scripts/sync-skills.js` to regenerate `marketplace.json` and the README skills table, then commits as `Coreybot`.
+- **`.github/workflows/validate-skill.yml`** — On push or PR to `main` that touches `**/SKILL.md`, computes the changed skill directories and runs `Flash-Brew-Digital/validate-skill@v1` against each in a matrix job.
+
 ## Git Workflow
 
 ### Branch Naming
@@ -158,25 +202,35 @@ Follow the [Conventional Commits](https://www.conventionalcommits.org/) specific
 
 - [ ] `name` matches directory name exactly
 - [ ] `name` follows naming rules (lowercase, hyphens, no `--`)
-- [ ] `description` is 1-1024 chars with trigger phrases
-- [ ] `SKILL.md` is under 500 lines
+- [ ] `description` is 1-1024 chars with trigger phrases and a related-skill pointer
+- [ ] `SKILL.md` is under 500 lines (move detail to `references/`)
+- [ ] `evals/evals.json` updated to cover new/changed behavior
+- [ ] `./validate-skills.sh` passes locally
+- [ ] If bumping behavior, increment `metadata.version` and add a `VERSIONS.md` entry
 - [ ] No sensitive data or credentials
+- [ ] Skill is cross-agent compatible — no `` !`command` `` syntax in `SKILL.md`
 
 ## Tool Integrations
 
 This repository includes a tools registry for agent-compatible marketing tools.
 
-- **Tool discovery**: Read `tools/REGISTRY.md` to see available tools and their capabilities
-- **Integration details**: See `tools/integrations/{tool}.md` for API endpoints, auth, and common operations
+- **Tool discovery**: Read `tools/REGISTRY.md` to see available tools and their capabilities (~70 tools indexed across analytics, SEO, CRM, payments, email, ads, CMS, etc.)
+- **Integration details**: See `tools/integrations/{tool}.md` (75 guides) for API endpoints, auth, and common operations
+- **CLI tools**: 61 zero-dependency Node.js CLIs in `tools/clis/` for tools without native MCP/SDK
 - **MCP-enabled tools**: ga4, stripe, mailchimp, google-ads, resend, zapier, zoominfo, clay, supermetrics, coupler, outreach, crossbeam, introw, composio
-- **Composio** (integration layer): Adds MCP access to OAuth-heavy tools without native MCP servers (HubSpot, Salesforce, Meta Ads, LinkedIn Ads, Google Sheets, Slack, etc.). See `tools/integrations/composio.md`
+- **Composio** (integration layer): Adds MCP access to OAuth-heavy tools without native MCP servers (HubSpot, Salesforce, Meta Ads, LinkedIn Ads, Google Sheets, Slack, Notion, etc.). See `tools/integrations/composio.md` and `tools/composio/marketing-tools.md`
 
 ### Registry Structure
 
 ```
 tools/
 ├── REGISTRY.md              # Index of all tools with capabilities
-└── integrations/            # Detailed integration guides
+├── clis/                    # 61 single-file Node.js CLIs (Node 18+, no deps)
+│   └── README.md            # Install + usage conventions
+├── composio/                # Integration-layer onboarding
+│   ├── README.md
+│   └── marketing-tools.md
+└── integrations/            # 75 detailed integration guides
     ├── ga4.md
     ├── stripe.md
     ├── rewardful.md
@@ -218,7 +272,18 @@ When using any skill from this repository:
 
 ## Skill Categories
 
-See `README.md` for the current list of skills organized by category. When adding new skills, follow the naming patterns of existing skills in that category.
+See `README.md` for the current list of skills organized by category. When adding new skills, follow the naming patterns of existing skills in that category. The current 33 skills are grouped as:
+
+- **Conversion Optimization**: page-cro, signup-flow-cro, onboarding-cro, form-cro, popup-cro, paywall-upgrade-cro
+- **Content & Copy**: copywriting, copy-editing, cold-email, email-sequence, social-content, content-strategy
+- **SEO & Discovery**: seo-audit, ai-seo, programmatic-seo, site-architecture, competitor-alternatives, schema-markup
+- **Paid & Distribution**: paid-ads, ad-creative
+- **Measurement & Testing**: analytics-tracking, ab-test-setup
+- **Retention**: churn-prevention
+- **Growth Engineering**: free-tool-strategy, referral-program, lead-magnets
+- **Strategy & Monetization**: marketing-ideas, marketing-psychology, launch-strategy, pricing-strategy
+- **Sales & RevOps**: revops, sales-enablement
+- **Research & Foundation**: customer-research, product-marketing-context
 
 ## Claude Code-Specific Enhancements
 
